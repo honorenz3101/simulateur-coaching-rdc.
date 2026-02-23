@@ -57,13 +57,13 @@ if st.sidebar.checkbox("Accès Enseignant (Admin)"):
 # --- INTERFACE ÉTUDIANT ---
 else:
     # --- EN-TÊTE OFFICIEL UBM ---
-col1, col2 = st.columns([1, 4])
+    col1, col2 = st.columns([1, 4])
 
-with col1:
+    with col1:
     # Remplacez l'URL ci-dessous par le lien direct vers l'image de votre logo
     st.image("logo_ubm.png", width=120)
 
-with col2:
+    with col2:
     st.markdown("""
     ### RÉPUBLIQUE DÉMOCRATIQUE DU CONGO
     **UNIVERSITÉ BERNADETTE MULEKA - UBM** *Département du Coaching Positif*
