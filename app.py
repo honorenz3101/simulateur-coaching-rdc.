@@ -61,7 +61,7 @@ else:
 
     with col1:
     # Remplacez l'URL ci-dessous par le lien direct vers l'image de votre logo
-    st.image("logo_ubm.png", width=120)
+        st.image("logo_ubm.png", width=120)
 
     with col2:
     st.markdown("""
