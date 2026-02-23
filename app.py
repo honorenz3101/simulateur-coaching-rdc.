@@ -43,7 +43,6 @@ st.set_page_config(page_title="Simulateur Coaching UBM", layout="centered")
 # --- 2. FONCTIONS DE GESTION & PEDAGOGIE ---
 def verifier_email(email):
     try:
-        # L'ajout de sep=None et engine='python' rend la lecture robuste aux formats français/anglais
         df_auth = pd.read_csv("autorisations.csv", sep=None, engine='python', header=None)
         liste_valide = df_auth.iloc[:, 0].astype(str).str.strip().str.lower().tolist()
         return email.strip().lower() in liste_valide
@@ -52,7 +51,6 @@ def verifier_email(email):
         return False
 
 def extraire_texte_fichier(fichier):
-    """Extrait le texte d'un PDF ou DOCX"""
     texte = ""
     try:
         if fichier.name.endswith('.pdf'):
@@ -113,7 +111,7 @@ def exporter_vers_drive_silencieux(email, client_type, historique, feedback):
             nouvelle_ligne = [date_session, email, client_type, texte_conversation, feedback]
             worksheet.append_row(nouvelle_ligne)
     except Exception:
-        pass # Silence complet pour ne pas alerter l'étudiant
+        pass # Silence total
 
 # --- 3. INTERFACE ENSEIGNANT ---
 if st.sidebar.checkbox("Accès Enseignant (Admin)"):
@@ -205,7 +203,7 @@ else:
                         init_prompt = f"""
                         Tu es un client de coaching avec ce profil : {client_choice}. Tu vis en République Démocratique du Congo.
                         C'est notre toute première rencontre.
-                        1. Attribue-toi un nom et prénom congolais. Tire au hasard ton origine parmi toutes les provinces (ex: noms du Kasaï, du Kongo Central, du Kivu, du Katanga, de l'Équateur, Province Orientale, etc.). Ne choisis pas toujours la même province.
+                        1. Attribue-toi un nom et prénom congolais. Tire au hasard ton origine parmi toutes les provinces. Ne choisis pas toujours la même province.
                         2. Salue le coach poliment et donne un bref contexte sur ta situation pour créer une connexion humaine.
                         3. Pose le problème qui t'amène aujourd'hui.
                         Sois naturel.
@@ -242,20 +240,23 @@ else:
                             st.error("Erreur de communication avec le client.")
 
                 st.divider()
-                # Bouton neutre - SAUVEGARDE DE L'ETAT AJOUTEE ICI
                 if st.button("Terminer la Session"):
                     st.session_state.client_choice = client_choice
                     st.session_state.session_terminee = True
                     st.rerun()
 
-        # --- ECRAN DE FIN DE SESSION ET FEEDBACK ---
+        # --- ECRAN DE FIN DE SESSION ET FEEDBACK BLINDÉ ---
         else:
+            # Récupération 100% sécurisée des variables
+            profil_sauvegarde = st.session_state.get("client_choice", "Profil non spécifié")
+            historique_sauvegarde = st.session_state.get("chat_history", [])
+            email_sauvegarde = st.session_state.get("user_email", "Email inconnu")
+
             st.success("La session est terminée. Merci pour votre écoute active.")
             
             with st.spinner("Le système analyse votre pratique..."):
-                feedback = generer_feedback(st.session_state.chat_history)
-                # Utilisation de la variable sauvegardée en mémoire
-                exporter_vers_drive_silencieux(st.session_state.user_email, st.session_state.client_choice, st.session_state.chat_history, feedback)
+                feedback = generer_feedback(historique_sauvegarde)
+                exporter_vers_drive_silencieux(email_sauvegarde, profil_sauvegarde, historique_sauvegarde, feedback)
             
             st.markdown("### 📋 Retour Pédagogique")
             st.info(feedback)
