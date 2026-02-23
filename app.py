@@ -43,10 +43,12 @@ st.set_page_config(page_title="Simulateur Coaching UBM", layout="centered")
 # --- 2. FONCTIONS DE GESTION & PEDAGOGIE ---
 def verifier_email(email):
     try:
-        df_auth = pd.read_csv("autorisations.csv")
-        liste_valide = df_auth.iloc[:, 0].str.strip().str.lower().tolist()
+        # L'ajout de sep=None et engine='python' rend la lecture robuste aux formats français/anglais
+        df_auth = pd.read_csv("autorisations.csv", sep=None, engine='python', header=None)
+        liste_valide = df_auth.iloc[:, 0].astype(str).str.strip().str.lower().tolist()
         return email.strip().lower() in liste_valide
-    except:
+    except Exception as e:
+        print(f"Erreur de lecture CSV : {e}")
         return False
 
 def extraire_texte_fichier(fichier):
@@ -56,7 +58,8 @@ def extraire_texte_fichier(fichier):
         if fichier.name.endswith('.pdf'):
             lecteur = PyPDF2.PdfReader(fichier)
             for page in lecteur.pages:
-                texte += page.extract_text() + "\n"
+                if page.extract_text():
+                    texte += page.extract_text() + "\n"
         elif fichier.name.endswith('.docx'):
             doc = docx.Document(fichier)
             for para in doc.paragraphs:
@@ -174,6 +177,8 @@ else:
             st.session_state.auth = False
             if 'chat_history' in st.session_state:
                 del st.session_state.chat_history
+            if 'client_choice' in st.session_state:
+                del st.session_state.client_choice
             st.rerun()
 
         if not st.session_state.get('session_terminee', False):
@@ -237,8 +242,9 @@ else:
                             st.error("Erreur de communication avec le client.")
 
                 st.divider()
-                # Bouton complètement neutre
+                # Bouton neutre - SAUVEGARDE DE L'ETAT AJOUTEE ICI
                 if st.button("Terminer la Session"):
+                    st.session_state.client_choice = client_choice
                     st.session_state.session_terminee = True
                     st.rerun()
 
@@ -248,12 +254,15 @@ else:
             
             with st.spinner("Le système analyse votre pratique..."):
                 feedback = generer_feedback(st.session_state.chat_history)
-                exporter_vers_drive_silencieux(st.session_state.user_email, client_choice, st.session_state.chat_history, feedback)
+                # Utilisation de la variable sauvegardée en mémoire
+                exporter_vers_drive_silencieux(st.session_state.user_email, st.session_state.client_choice, st.session_state.chat_history, feedback)
             
             st.markdown("### 📋 Retour Pédagogique")
             st.info(feedback)
             
             if st.button("Retour à l'accueil"):
                 del st.session_state.chat_history
+                if 'client_choice' in st.session_state:
+                    del st.session_state.client_choice
                 st.session_state.session_terminee = False
                 st.rerun()
