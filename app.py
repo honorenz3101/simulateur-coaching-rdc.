@@ -2,6 +2,21 @@ import streamlit as st
 import google.generativeai as genai
 import pandas as pd
 from datetime import datetime
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+
+# Configuration de la connexion
+scope = ["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/drive.file"]
+
+# On récupère les accès depuis les "Secrets" de Streamlit
+creds_dict = st.secrets["gcp_service_account"]
+creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+client = gspread.authorize(creds)
+
+def sauvegarder_sur_drive(email_etudiant, contenu):
+    # Cette fonction va créer un fichier texte directement dans votre dossier partagé
+    # (Il faudra ajouter l'ID de votre dossier Drive ici)
+    pass
 
 # --- CONFIGURATION ---
 genai.configure(api_key="VOTRE_CLE_API_GEMINI")
