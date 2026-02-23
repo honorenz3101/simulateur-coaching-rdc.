@@ -43,7 +43,9 @@ st.set_page_config(page_title="Simulateur Coaching UBM", layout="centered")
 # --- 2. FONCTIONS DE GESTION & PEDAGOGIE ---
 def verifier_email(email):
     try:
+        # Lecture robuste pour contourner les erreurs d'encodage
         df_auth = pd.read_csv("autorisations.csv", sep=None, engine='python', header=None)
+        # Nettoyage systématique de la colonne : conversion en texte, suppression des espaces, mise en minuscules
         liste_valide = df_auth.iloc[:, 0].astype(str).str.strip().str.lower().tolist()
         return email.strip().lower() in liste_valide
     except Exception as e:
@@ -120,7 +122,16 @@ if st.sidebar.checkbox("Accès Enseignant (Admin)"):
         st.header("🛠 Espace Administration")
         
         st.subheader("1. Gestion des accès")
-        st.file_uploader("Mettre à jour la liste des étudiants (autorisations.csv)", type=['csv'])
+        fichier_csv = st.file_uploader("Mettre à jour la liste des étudiants (autorisations.csv)", type=['csv'])
+        
+        if fichier_csv is not None:
+            if st.button("Sauvegarder la nouvelle liste"):
+                try:
+                    with open("autorisations.csv", "wb") as f:
+                        f.write(fichier_csv.getbuffer())
+                    st.success("✅ La liste des accès a été mise à jour et sauvegardée avec succès !")
+                except Exception as e:
+                    st.error(f"Erreur lors de la sauvegarde : {e}")
         
         st.divider()
         
@@ -167,7 +178,7 @@ else:
                 st.session_state.session_terminee = False
                 st.rerun()
             else:
-                st.error("Email non autorisé.")
+                st.error("Accès refusé. Vérifiez votre adresse e-mail ou contactez l'administration.")
     
     else:
         st.sidebar.info(f"Coach : {st.session_state.user_email}")
@@ -247,7 +258,6 @@ else:
 
         # --- ECRAN DE FIN DE SESSION ET FEEDBACK BLINDÉ ---
         else:
-            # Récupération 100% sécurisée des variables
             profil_sauvegarde = st.session_state.get("client_choice", "Profil non spécifié")
             historique_sauvegarde = st.session_state.get("chat_history", [])
             email_sauvegarde = st.session_state.get("user_email", "Email inconnu")
