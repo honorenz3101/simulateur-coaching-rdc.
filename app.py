@@ -43,11 +43,18 @@ st.set_page_config(page_title="Simulateur Coaching UBM", layout="centered")
 # --- 2. FONCTIONS DE GESTION & PEDAGOGIE ---
 def verifier_email(email):
     try:
-        # Lecture robuste pour contourner les erreurs d'encodage
-        df_auth = pd.read_csv("autorisations.csv", sep=None, engine='python', header=None)
-        # Nettoyage systématique de la colonne : conversion en texte, suppression des espaces, mise en minuscules
+        # Tentative de lecture avec utf-8-sig pour détruire le caractère invisible (BOM) d'Excel
+        try:
+            df_auth = pd.read_csv("autorisations.csv", sep=None, engine='python', header=None, encoding='utf-8-sig')
+        except:
+            # Solution de repli si le fichier a un autre format européen
+            df_auth = pd.read_csv("autorisations.csv", sep=None, engine='python', header=None, encoding='latin1')
+            
+        # Nettoyage extrême : on force en texte, on enlève les espaces de chaque côté, et on met en minuscules
         liste_valide = df_auth.iloc[:, 0].astype(str).str.strip().str.lower().tolist()
-        return email.strip().lower() in liste_valide
+        
+        email_propre = email.strip().lower()
+        return email_propre in liste_valide
     except Exception as e:
         print(f"Erreur de lecture CSV : {e}")
         return False
@@ -113,7 +120,7 @@ def exporter_vers_drive_silencieux(email, client_type, historique, feedback):
             nouvelle_ligne = [date_session, email, client_type, texte_conversation, feedback]
             worksheet.append_row(nouvelle_ligne)
     except Exception:
-        pass # Silence total
+        pass 
 
 # --- 3. INTERFACE ENSEIGNANT ---
 if st.sidebar.checkbox("Accès Enseignant (Admin)"):
@@ -129,7 +136,7 @@ if st.sidebar.checkbox("Accès Enseignant (Admin)"):
                 try:
                     with open("autorisations.csv", "wb") as f:
                         f.write(fichier_csv.getbuffer())
-                    st.success("✅ La liste des accès a été mise à jour et sauvegardée avec succès !")
+                    st.success("✅ La liste des accès a été mise à jour ! (Note: Streamlit efface les fichiers uploadés s'il se met en veille. Gardez une copie de votre liste).")
                 except Exception as e:
                     st.error(f"Erreur lors de la sauvegarde : {e}")
         
