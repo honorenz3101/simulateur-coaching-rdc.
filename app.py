@@ -16,11 +16,22 @@ def initialiser_drive():
     except Exception:
         return None
 
-# --- CONFIGURATION IA (FORCE LE MODÈLE STABLE) ---
+# --- CONFIGURATION IA (AUTO-DÉTECTION) ---
 try:
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    # Utilisation de la version 'latest' qui est la plus compatible
-    model = genai.GenerativeModel('gemini-1.5-flash-latest')
+    
+    # Le script cherche lui-même le bon nom de modèle autorisé par votre clé
+    modele_autorise = None
+    for m in genai.list_models():
+        if 'generateContent' in m.supported_generation_methods:
+            modele_autorise = m.name
+            if 'flash' in m.name: # On préfère la version rapide si elle est dispo
+                break
+                
+    if modele_autorise:
+        model = genai.GenerativeModel(modele_autorise)
+    else:
+        st.error("Votre clé API n'a accès à aucun modèle de génération de texte.")
 except Exception as e:
     st.error(f"Erreur configuration API : {str(e)}")
 
@@ -50,12 +61,8 @@ if st.sidebar.checkbox("Accès Enseignant (Admin)"):
     mdp = st.sidebar.text_input("Code d'accès", type="password")
     if mdp == "VOTRE_CODE_SECRET": 
         st.header("🛠 Espace Administration")
-        st.write("Diagnostic des modèles disponibles...")
-        try:
-            models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-            st.write(models)
-        except Exception as e:
-            st.write(f"Erreur diagnostic : {e}")
+        st.success(f"Modèle IA actuellement connecté : {modele_autorise}")
+        st.file_uploader("Mettre à jour la liste des étudiants (CSV)", type=['csv'])
     else:
         if mdp: st.error("Code erroné")
 
@@ -107,9 +114,8 @@ else:
             
             # --- INITIALISATION ---
             if len(st.session_state.chat_history) == 0:
-                with st.spinner("Le client entre..."):
+                with st.spinner("Le client s'installe..."):
                     try:
-                        # Appel simplifié sans paramètres complexes
                         response = model.generate_content(f"Tu es un client de coaching : {client_choice}. Présente ton problème brièvement en une phrase.")
                         st.session_state.chat_history.append({"role": "assistant", "content": response.text})
                     except Exception as e:
@@ -126,8 +132,7 @@ else:
 
                 with st.chat_message("assistant"):
                     try:
-                        # Utilisation de l'historique simplifié
-                        full_prompt = f"Tu es le client {client_choice}. Le coach dit : '{prompt}'. Réponds brièvement."
+                        full_prompt = f"Tu es le client {client_choice}. Le coach dit : '{prompt}'. Réponds de manière naturelle et brève."
                         response = model.generate_content(full_prompt)
                         st.session_state.chat_history.append({"role": "assistant", "content": response.text})
                         st.markdown(response.text)
