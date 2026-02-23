@@ -6,7 +6,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
 # --- 1. CONFIGURATION DRIVE & API ---
-scope = ["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/drive.file"]
+scope = ["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/spreadsheets"]
 
 def initialiser_drive():
     try:
@@ -49,24 +49,27 @@ def exporter_vers_drive(email, client_type, historique):
     client_drive = initialiser_drive()
     if client_drive:
         try:
-            # L'ID de votre dossier Google Drive
-            ID_DOSSIER = "1PyO1r8MH4m-tYDkPmESRKXdTYWBkL5eC"
-            nom_fichier = f"Session_{email}_{datetime.now().strftime('%Y%m%d_%H%M')}"
+            # ⚠️ L'ID DE VOTRE FICHIER GOOGLE SHEETS CENTRAL
+            ID_FICHIER_MAITRE = "1SCfmcWKY5-PUbBu3qMZ-WRakhUDr0dpTvsldZFdgHgE"
             
-            # 1. Création du fichier dans le bon dossier
-            sh = client_drive.create(nom_fichier, folder_id=ID_DOSSIER)
-            
-            # 2. Écriture de la conversation dans le fichier
-            worksheet = sh.get_worksheet(0)
-            data = [["Rôle", "Message"]] # En-têtes des colonnes
+            # 1. On rassemble toute la conversation en un seul bloc de texte
+            texte_conversation = ""
             for msg in historique:
                 role = "Coach" if msg["role"] == "user" else "Client"
-                data.append([role, msg["content"]])
+                texte_conversation += f"{role}: {msg['content']}\n\n"
             
-            # Ajout des lignes dans le document
-            worksheet.append_rows(data)
+            # 2. On ouvre votre fichier existant
+            sh = client_drive.open_by_key(ID_FICHIER_MAITRE)
+            worksheet = sh.sheet1 # Sélectionne le premier onglet du tableau
             
-            st.success(f"✅ Rapport exporté avec succès sur votre Google Drive !")
+            # 3. On prépare la nouvelle ligne de données
+            date_session = datetime.now().strftime('%Y-%m-%d %H:%M')
+            nouvelle_ligne = [date_session, email, client_type, texte_conversation]
+            
+            # 4. On ajoute la ligne tout en bas du tableau
+            worksheet.append_row(nouvelle_ligne)
+            
+            st.success("✅ Rapport sauvegardé avec succès dans le registre central !")
         except Exception as e:
             st.error(f"Échec de l'exportation Drive : {e}")
 
@@ -126,15 +129,14 @@ else:
             if "chat_history" not in st.session_state:
                 st.session_state.chat_history = []
             
-            # --- INITIALISATION : Connexion et Rapport ---
+            # --- INITIALISATION : Connexion et Présentation ---
             if len(st.session_state.chat_history) == 0:
                 with st.spinner("Le client s'installe dans votre bureau virtuel..."):
                     try:
-                        # Prompt modifié pour forcer la création d'une identité et d'un lien
                         init_prompt = f"""
                         Tu es un client de coaching avec ce profil : {client_choice}. Tu vis en RDC ou tu es issu de la diaspora africaine.
                         C'est notre toute première rencontre.
-                        1. Attribue-toi un nom réaliste (ex: Monsieur, Madame, ou Mademoiselle suivi d'un nom).
+                        1. Attribue-toi un nom réaliste (ex: Monsieur, Madame, ou Mademoiselle suivi d'un nom de famille).
                         2. Salue le coach et donne un bref contexte sur ta vie ou ton travail pour créer une connexion humaine.
                         3. Termine en posant le problème qui t'amène aujourd'hui.
                         Sois naturel, chaleureux mais préoccupé par ton problème. Pas de phrases robotiques.
@@ -157,7 +159,7 @@ else:
 
                 with st.chat_message("assistant"):
                     try:
-                        # On reconstruit l'historique pour que l'IA se souvienne de son propre nom !
+                        # Reconstitution de l'historique pour garder la mémoire du nom et de l'histoire
                         historique_texte = "\n".join([f"{'Coach' if m['role']=='user' else 'Client'}: {m['content']}" for m in st.session_state.chat_history])
                         
                         full_prompt = f"""
@@ -173,9 +175,10 @@ else:
                     except Exception as e:
                         st.error(f"Erreur de réponse : {str(e)}")
 
-            # --- BOUTON DE FIN DE SESSION ---
+            # --- BOUTON DE FIN DE SESSION ET SAUVEGARDE ---
             st.divider()
             if st.button("Terminer la session et sauvegarder le rapport"):
                 exporter_vers_drive(st.session_state.user_email, client_choice, st.session_state.chat_history)
-                del st.session_state.chat_history # Réinitialise le chat
-                st.rerun() # Rafraîchit l'interface
+                # Réinitialisation de l'historique pour la prochaine session
+                del st.session_state.chat_history
+                st.rerun()
