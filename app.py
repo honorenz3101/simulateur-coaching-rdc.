@@ -56,7 +56,7 @@ if st.sidebar.checkbox("Accès Enseignant (Admin)"):
 
 # --- INTERFACE ÉTUDIANT ---
 else:
-    st.title("🎓 Simulateur de Conversations de Coaching")
+    st.title("Universite Bernadette Muleka (UBM) /n Departement du Coaching Positif /n 🎓 Simulateur de Conversations de Coaching")
     
     if 'auth' not in st.session_state:
         st.session_state.auth = False
