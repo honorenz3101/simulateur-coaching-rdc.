@@ -4,6 +4,9 @@ import pandas as pd
 from datetime import datetime
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import PyPDF2
+import docx
+import io
 
 # --- 1. CONFIGURATION DRIVE & API ---
 scope = [
@@ -16,7 +19,7 @@ def initialiser_drive():
         creds_dict = st.secrets["gcp_service_account"]
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         return gspread.authorize(creds)
-    except Exception as e:
+    except Exception:
         return None
 
 # --- CONFIGURATION IA ---
@@ -32,14 +35,12 @@ try:
                 
     if modele_autorise:
         model = genai.GenerativeModel(modele_autorise)
-    else:
-        st.error("Aucun modèle IA autorisé trouvé.")
 except Exception as e:
-    st.error(f"Erreur configuration API : {str(e)}")
+    st.error(f"Erreur de configuration API : {str(e)}")
 
 st.set_page_config(page_title="Simulateur Coaching UBM", layout="centered")
 
-# --- 2. FONCTIONS DE GESTION ---
+# --- 2. FONCTIONS DE GESTION & PEDAGOGIE ---
 def verifier_email(email):
     try:
         df_auth = pd.read_csv("autorisations.csv")
@@ -48,55 +49,94 @@ def verifier_email(email):
     except:
         return False
 
-def exporter_vers_drive(email, client_type, historique):
+def extraire_texte_fichier(fichier):
+    """Extrait le texte d'un PDF ou DOCX"""
+    texte = ""
     try:
-        st.info("Étape 1 : Connexion au compte de service Google Drive...")
+        if fichier.name.endswith('.pdf'):
+            lecteur = PyPDF2.PdfReader(fichier)
+            for page in lecteur.pages:
+                texte += page.extract_text() + "\n"
+        elif fichier.name.endswith('.docx'):
+            doc = docx.Document(fichier)
+            for para in doc.paragraphs:
+                texte += para.text + "\n"
+        return texte
+    except Exception as e:
+        return f"Erreur d'extraction : {e}"
+
+def charger_cours():
+    try:
+        with open("referentiel_coaching.txt", "r", encoding="utf-8") as f:
+            return f.read()
+    except Exception:
+        return "Le professeur n'a pas encore chargé le référentiel de cours."
+
+def generer_feedback(historique):
+    cours = charger_cours()
+    texte_conversation = "\n".join([f"{'Coach' if m['role']=='user' else 'Client'}: {m['content']}" for m in historique])
+    
+    prompt_evaluation = f"""
+    Tu es un superviseur expert en coaching positif. 
+    Voici les notes de cours et les compétences attendues pour l'étudiant : 
+    {cours}
+    
+    Voici la transcription de la séance de coaching de l'étudiant :
+    {texte_conversation}
+    
+    Rédige un feedback constructif et bienveillant adressé directement à l'étudiant. 
+    Mets en évidence 2 points forts de sa pratique et 1 ou 2 axes d'amélioration précis en te basant STRICTEMENT sur les notes de cours. Sois concis.
+    """
+    try:
+        reponse = model.generate_content(prompt_evaluation)
+        return reponse.text
+    except:
+        return "Le feedback IA est indisponible pour le moment."
+
+def exporter_vers_drive_silencieux(email, client_type, historique, feedback):
+    try:
         client_drive = initialiser_drive()
-        if not client_drive:
-            st.error("Échec Étape 1 : Le client Drive n'a pas pu être initialisé. Vérifiez votre fichier JSON dans les Secrets Streamlit.")
-            return
-
-        st.info("Étape 2 : Ouverture de votre fichier Google Sheets central...")
-        ID_FICHIER_MAITRE = "1SCfmcWKY5-PUbBu3qMZ-WRakhUDr0dpTvsldZFdgHgE"
-        try:
+        if client_drive:
+            ID_FICHIER_MAITRE = "1SCfmcWKY5-PUbBu3qMZ-WRakhUDr0dpTvsldZFdgHgE"
             sh = client_drive.open_by_key(ID_FICHIER_MAITRE)
-        except Exception as e:
-            erreur_brute = repr(e)
-            st.error(f"Échec Étape 2. Voici le message caché renvoyé par Google : {erreur_brute}")
-            return
-
-        st.info("Étape 3 : Sélection du premier onglet du tableau...")
-        try:
             worksheet = sh.get_worksheet(0) 
-        except Exception as e:
-            st.error(f"Échec Étape 3 : {repr(e)}")
-            return
-
-        st.info("Étape 4 : Formatage et écriture de la conversation...")
-        try:
+            
             texte_conversation = ""
             for msg in historique:
                 role = "Coach" if msg["role"] == "user" else "Client"
                 texte_conversation += f"{role}: {msg['content']}\n\n"
             
             date_session = datetime.now().strftime('%Y-%m-%d %H:%M')
-            nouvelle_ligne = [date_session, email, client_type, texte_conversation]
-
+            nouvelle_ligne = [date_session, email, client_type, texte_conversation, feedback]
             worksheet.append_row(nouvelle_ligne)
-            st.success("✅ Rapport sauvegardé avec succès dans le registre central !")
-        except Exception as e:
-            st.error(f"Échec Étape 4 : {repr(e)}")
-
-    except Exception as e:
-        st.error(f"Erreur globale inattendue : {repr(e)}")
+    except Exception:
+        pass # Silence complet pour ne pas alerter l'étudiant
 
 # --- 3. INTERFACE ENSEIGNANT ---
 if st.sidebar.checkbox("Accès Enseignant (Admin)"):
     mdp = st.sidebar.text_input("Code d'accès", type="password")
     if mdp == "VOTRE_CODE_SECRET": 
         st.header("🛠 Espace Administration")
-        st.success(f"Modèle IA actuellement connecté : {modele_autorise}")
-        st.file_uploader("Mettre à jour la liste des étudiants (CSV)", type=['csv'])
+        
+        st.subheader("1. Gestion des accès")
+        st.file_uploader("Mettre à jour la liste des étudiants (autorisations.csv)", type=['csv'])
+        
+        st.divider()
+        
+        st.subheader("2. Référentiel Pédagogique")
+        st.write("Uploadez votre support de cours. L'IA lira le texte pour évaluer les étudiants.")
+        fichier_cours = st.file_uploader("Support de cours (PDF ou DOCX)", type=['pdf', 'docx'])
+        
+        if fichier_cours is not None:
+            if st.button("Mettre à jour la base de connaissances IA"):
+                with st.spinner("Extraction du texte en cours..."):
+                    texte_extrait = extraire_texte_fichier(fichier_cours)
+                    if not texte_extrait.startswith("Erreur"):
+                        with open("referentiel_coaching.txt", "w", encoding="utf-8") as f:
+                            f.write(texte_extrait)
+                        st.success("✅ Le support de cours a été analysé et sauvegardé avec succès ! L'IA utilisera désormais ces critères.")
+                    else:
+                        st.error(texte_extrait)
     else:
         if mdp: st.error("Code erroné")
 
@@ -123,6 +163,7 @@ else:
             if verifier_email(email_input):
                 st.session_state.auth = True
                 st.session_state.user_email = email_input.lower()
+                st.session_state.session_terminee = False
                 st.rerun()
             else:
                 st.error("Email non autorisé.")
@@ -131,68 +172,88 @@ else:
         st.sidebar.info(f"Coach : {st.session_state.user_email}")
         if st.sidebar.button("Déconnexion"):
             st.session_state.auth = False
+            if 'chat_history' in st.session_state:
+                del st.session_state.chat_history
             st.rerun()
 
-        client_choice = st.selectbox("Sélectionnez un profil de client :", [
-            "Sélectionner...",
-            "Fonctionnaire de l'État (Kinshasa)",
-            "Entrepreneur local (Lubumbashi)",
-            "Couple de la diaspora (Bruxelles)",
-            "Étudiant en recherche de stage",
-            "Professionnel en burnout"
-        ])
+        if not st.session_state.get('session_terminee', False):
+            client_choice = st.selectbox("Sélectionnez un profil de client :", [
+                "Sélectionner...",
+                "1. Étudiant en fin de cycle cherchant son premier stage (Kinshasa)",
+                "2. Jeune diplômé bloqué par le favoritisme à l'embauche",
+                "3. Étudiante voulant lancer une start-up agricole (Kivu)",
+                "4. Jeune professionnel voulant quitter le secteur informel",
+                "5. Diplômé dont la formation théorique ne correspond pas au marché",
+                "6. Étudiante manquant de confiance pour les entretiens",
+                "7. Jeune entrepreneur découragé par les tracasseries administratives",
+                "8. Professionnel junior subissant une forte pression financière familiale",
+                "9. Étudiant cherchant à concilier petits boulots de survie et études",
+                "10. Jeune femme confrontée aux barrières de genre dans un milieu technique"
+            ])
 
-        if client_choice != "Sélectionner...":
-            if "chat_history" not in st.session_state:
-                st.session_state.chat_history = []
-            
-            # --- INITIALISATION ---
-            if len(st.session_state.chat_history) == 0:
-                with st.spinner("Le client s'installe dans votre bureau virtuel..."):
-                    try:
+            if client_choice != "Sélectionner...":
+                if "chat_history" not in st.session_state:
+                    st.session_state.chat_history = []
+                
+                if len(st.session_state.chat_history) == 0:
+                    with st.spinner("Le client s'installe..."):
                         init_prompt = f"""
-                        Tu es un client de coaching avec ce profil : {client_choice}. Tu vis en RDC ou tu es issu de la diaspora africaine.
+                        Tu es un client de coaching avec ce profil : {client_choice}. Tu vis en République Démocratique du Congo.
                         C'est notre toute première rencontre.
-                        1. Attribue-toi un nom réaliste (ex: Monsieur, Madame, ou Mademoiselle suivi d'un nom de famille).
-                        2. Salue le coach et donne un bref contexte sur ta vie ou ton travail pour créer une connexion humaine.
-                        3. Termine en posant le problème qui t'amène aujourd'hui.
-                        Sois naturel, chaleureux mais préoccupé par ton problème. Pas de phrases robotiques.
+                        1. Attribue-toi un nom et prénom congolais. Tire au hasard ton origine parmi toutes les provinces (ex: noms du Kasaï, du Kongo Central, du Kivu, du Katanga, de l'Équateur, Province Orientale, etc.). Ne choisis pas toujours la même province.
+                        2. Salue le coach poliment et donne un bref contexte sur ta situation pour créer une connexion humaine.
+                        3. Pose le problème qui t'amène aujourd'hui.
+                        Sois naturel.
                         """
-                        response = model.generate_content(init_prompt)
-                        st.session_state.chat_history.append({"role": "assistant", "content": response.text})
-                    except Exception as e:
-                        st.error(f"Erreur technique (IA) : {str(e)}")
+                        try:
+                            response = model.generate_content(init_prompt)
+                            st.session_state.chat_history.append({"role": "assistant", "content": response.text})
+                        except Exception as e:
+                            st.error(f"Erreur technique : {str(e)}")
 
-            # Affichage de l'historique
-            for message in st.session_state.chat_history:
-                with st.chat_message(message["role"]):
-                    st.markdown(message["content"])
+                for message in st.session_state.chat_history:
+                    with st.chat_message(message["role"]):
+                        st.markdown(message["content"])
 
-            # Entrée du texte par le coach
-            if prompt := st.chat_input("Votre réponse de coach..."):
-                st.session_state.chat_history.append({"role": "user", "content": prompt})
-                with st.chat_message("user"):
-                    st.markdown(prompt)
+                if prompt := st.chat_input("Votre réponse de coach..."):
+                    st.session_state.chat_history.append({"role": "user", "content": prompt})
+                    with st.chat_message("user"):
+                        st.markdown(prompt)
 
-                with st.chat_message("assistant"):
-                    try:
-                        historique_texte = "\n".join([f"{'Coach' if m['role']=='user' else 'Client'}: {m['content']}" for m in st.session_state.chat_history])
-                        
-                        full_prompt = f"""
-                        Tu es le client ({client_choice}). Reste strictement dans ton personnage (garde le même nom et la même histoire qu'au début de la conversation). 
-                        Voici notre conversation en cours :
-                        {historique_texte}
-                        
-                        Réponds de manière naturelle et concise au dernier message du Coach.
-                        """
-                        response = model.generate_content(full_prompt)
-                        st.session_state.chat_history.append({"role": "assistant", "content": response.text})
-                        st.markdown(response.text)
-                    except Exception as e:
-                        st.error(f"Erreur de réponse : {str(e)}")
+                    with st.chat_message("assistant"):
+                        try:
+                            historique_texte = "\n".join([f"{'Coach' if m['role']=='user' else 'Client'}: {m['content']}" for m in st.session_state.chat_history])
+                            
+                            full_prompt = f"""
+                            Tu es le client ({client_choice}). Reste strictement dans ton personnage. 
+                            Voici notre conversation :
+                            {historique_texte}
+                            Réponds de manière naturelle et concise au Coach.
+                            """
+                            response = model.generate_content(full_prompt)
+                            st.session_state.chat_history.append({"role": "assistant", "content": response.text})
+                            st.markdown(response.text)
+                        except Exception:
+                            st.error("Erreur de communication avec le client.")
 
-            # --- BOUTON DE FIN DE SESSION ---
-            st.divider()
-            if st.button("Terminer la session et sauvegarder le rapport"):
-                exporter_vers_drive(st.session_state.user_email, client_choice, st.session_state.chat_history)
-                # Remarque: Le st.rerun() a été retiré temporairement ici pour que vous ayez le temps de lire le message d'erreur à l'écran.
+                st.divider()
+                # Bouton complètement neutre
+                if st.button("Terminer la Session"):
+                    st.session_state.session_terminee = True
+                    st.rerun()
+
+        # --- ECRAN DE FIN DE SESSION ET FEEDBACK ---
+        else:
+            st.success("La session est terminée. Merci pour votre écoute active.")
+            
+            with st.spinner("Le système analyse votre pratique..."):
+                feedback = generer_feedback(st.session_state.chat_history)
+                exporter_vers_drive_silencieux(st.session_state.user_email, client_choice, st.session_state.chat_history, feedback)
+            
+            st.markdown("### 📋 Retour Pédagogique")
+            st.info(feedback)
+            
+            if st.button("Retour à l'accueil"):
+                del st.session_state.chat_history
+                st.session_state.session_terminee = False
+                st.rerun()
