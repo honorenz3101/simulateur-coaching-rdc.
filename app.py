@@ -16,13 +16,13 @@ def initialiser_drive():
     except Exception:
         return None
 
-# --- CONFIGURATION IA (MODIFIÉE POUR ÉVITER L'ERREUR 404) ---
+# --- CONFIGURATION IA (CORRECTION NOM DU MODÈLE) ---
 try:
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    # Utilisation du modèle 'gemini-1.5-flash' qui est plus largement supporté
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    # Utilisation du nom complet du modèle pour éviter l'erreur 404
+    model = genai.GenerativeModel('models/gemini-1.5-flash')
 except Exception as e:
-    st.error("Erreur de configuration de la clé API Gemini.")
+    st.error(f"Erreur de configuration API : {str(e)}")
 
 st.set_page_config(page_title="Simulateur Coaching UBM", layout="centered")
 
@@ -50,7 +50,13 @@ if st.sidebar.checkbox("Accès Enseignant (Admin)"):
     mdp = st.sidebar.text_input("Code d'accès", type="password")
     if mdp == "VOTRE_CODE_SECRET": 
         st.header("🛠 Espace Administration")
-        st.file_uploader("Mettre à jour la liste des étudiants (CSV)", type=['csv'])
+        st.write("Liste des modèles accessibles par votre clé :")
+        try:
+            for m in genai.list_models():
+                if 'generateContent' in m.supported_generation_methods:
+                    st.write(f"- {m.name}")
+        except:
+            st.write("Impossible de lister les modèles.")
     else:
         if mdp: st.error("Code erroné")
 
@@ -100,11 +106,11 @@ else:
             if "chat_history" not in st.session_state:
                 st.session_state.chat_history = []
             
-            # --- INITIALISATION PAR LE CLIENT ---
             if len(st.session_state.chat_history) == 0:
                 with st.spinner("Le client entre..."):
-                    init_prompt = f"Tu es un client de coaching : {client_choice}. Tu es en RDC ou issu de cette culture. Salue ton coach et présente brièvement ton problème pour lancer la séance. Sois court et authentique."
+                    init_prompt = f"Tu es un client de coaching : {client_choice}. Salue ton coach et présente ton problème brièvement."
                     try:
+                        # Appel avec le nom de modèle explicite
                         response = model.generate_content(init_prompt)
                         st.session_state.chat_history.append({"role": "assistant", "content": response.text})
                     except Exception as e:
@@ -122,8 +128,7 @@ else:
                 with st.chat_message("assistant"):
                     with st.spinner("Le client répond..."):
                         try:
-                            # Contexte + les 4 derniers messages pour la mémoire sans saturer l'API
-                            context = f"Tu es le client {client_choice}. Réponds brièvement au coach."
+                            context = f"Tu es le client {client_choice}. Réponds brièvement."
                             response = model.generate_content([context, prompt])
                             st.session_state.chat_history.append({"role": "assistant", "content": response.text})
                             st.markdown(response.text)
@@ -131,7 +136,7 @@ else:
                             st.error(f"Erreur de réponse : {str(e)}")
 
             st.divider()
-            if st.button("Terminer la session (Sauvegarder et quitter)"):
+            if st.button("Terminer la session"):
                 exporter_vers_drive(st.session_state.user_email, client_choice, st.session_state.chat_history)
                 del st.session_state.chat_history
                 st.rerun()
