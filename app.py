@@ -6,14 +6,17 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
 # --- 1. CONFIGURATION DRIVE & API ---
-scope = ["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/spreadsheets"]
+scope = [
+    "https://www.googleapis.com/auth/drive", 
+    "https://www.googleapis.com/auth/spreadsheets"
+]
 
 def initialiser_drive():
     try:
         creds_dict = st.secrets["gcp_service_account"]
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         return gspread.authorize(creds)
-    except Exception:
+    except Exception as e:
         return None
 
 # --- CONFIGURATION IA ---
@@ -54,20 +57,19 @@ def exporter_vers_drive(email, client_type, historique):
             return
 
         st.info("Étape 2 : Ouverture de votre fichier Google Sheets central...")
-        # L'ID de votre registre central
         ID_FICHIER_MAITRE = "1SCfmcWKY5-PUbBu3qMZ-WRakhUDr0dpTvsldZFdgHgE"
         try:
             sh = client_drive.open_by_key(ID_FICHIER_MAITRE)
         except Exception as e:
-            st.error(f"Échec Étape 2 : Impossible d'ouvrir le fichier. Le compte de service a-t-il bien été ajouté comme Éditeur ?\n\nDétail : {e}")
+            erreur_brute = repr(e)
+            st.error(f"Échec Étape 2. Voici le message caché renvoyé par Google : {erreur_brute}")
             return
 
         st.info("Étape 3 : Sélection du premier onglet du tableau...")
         try:
-            # Index 0 pour ignorer la barrière de la langue (Sheet1 vs Feuille 1)
             worksheet = sh.get_worksheet(0) 
         except Exception as e:
-            st.error(f"Échec Étape 3 : Impossible de trouver l'onglet dans le fichier.\n\nDétail : {e}")
+            st.error(f"Échec Étape 3 : {repr(e)}")
             return
 
         st.info("Étape 4 : Formatage et écriture de la conversation...")
@@ -83,10 +85,10 @@ def exporter_vers_drive(email, client_type, historique):
             worksheet.append_row(nouvelle_ligne)
             st.success("✅ Rapport sauvegardé avec succès dans le registre central !")
         except Exception as e:
-            st.error(f"Échec Étape 4 : L'écriture a été refusée. L'API 'Google Sheets API' est-elle activée ?\n\nDétail : {e}")
+            st.error(f"Échec Étape 4 : {repr(e)}")
 
     except Exception as e:
-        st.error(f"Erreur globale inattendue : {e}")
+        st.error(f"Erreur globale inattendue : {repr(e)}")
 
 # --- 3. INTERFACE ENSEIGNANT ---
 if st.sidebar.checkbox("Accès Enseignant (Admin)"):
@@ -144,7 +146,7 @@ else:
             if "chat_history" not in st.session_state:
                 st.session_state.chat_history = []
             
-            # --- INITIALISATION : Connexion et Présentation ---
+            # --- INITIALISATION ---
             if len(st.session_state.chat_history) == 0:
                 with st.spinner("Le client s'installe dans votre bureau virtuel..."):
                     try:
@@ -161,12 +163,12 @@ else:
                     except Exception as e:
                         st.error(f"Erreur technique (IA) : {str(e)}")
 
-            # Affichage de l'historique de la conversation
+            # Affichage de l'historique
             for message in st.session_state.chat_history:
                 with st.chat_message(message["role"]):
                     st.markdown(message["content"])
 
-            # Entrée du texte par le coach (Étudiant)
+            # Entrée du texte par le coach
             if prompt := st.chat_input("Votre réponse de coach..."):
                 st.session_state.chat_history.append({"role": "user", "content": prompt})
                 with st.chat_message("user"):
@@ -189,8 +191,8 @@ else:
                     except Exception as e:
                         st.error(f"Erreur de réponse : {str(e)}")
 
-            # --- BOUTON DE FIN DE SESSION ET SAUVEGARDE ---
+            # --- BOUTON DE FIN DE SESSION ---
             st.divider()
             if st.button("Terminer la session et sauvegarder le rapport"):
-                # On lance la nouvelle fonction de diagnostic
                 exporter_vers_drive(st.session_state.user_email, client_choice, st.session_state.chat_history)
+                # Remarque: Le st.rerun() a été retiré temporairement ici pour que vous ayez le temps de lire le message d'erreur à l'écran.
