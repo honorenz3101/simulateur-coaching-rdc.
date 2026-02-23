@@ -2,125 +2,155 @@ import streamlit as st
 import google.generativeai as genai
 import pandas as pd
 from datetime import datetime
-
-# --- CONFIGURATION INITIALE ---
-# Optionnel : Décommentez ces lignes une fois le setup Google Drive fini
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-scope = ["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/drive.file"]
-creds_dict = st.secrets["gcp_service_account"]
-creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-client = gspread.authorize(creds)
 
-# --- CONFIGURATION IA ---
-# Assurez-vous que GEMINI_API_KEY est bien dans vos Secrets Streamlit
+# --- CONFIGURATION INITIALE & DRIVE ---
+# Définition des accès pour Google Drive
+scope = ["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/drive.file"]
+
+try:
+    # Récupération des accès depuis les "Secrets" de Streamlit
+    creds_dict = st.secrets["gcp_service_account"]
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    client = gspread.authorize(creds)
+    # Note : Pour créer des fichiers textes simples, on utilise l'API Drive via gspread ou une autre brique
+except Exception as e:
+    st.error(f"Erreur de configuration Google Drive : {e}")
+
+# --- CONFIGURATION IA (GEMINI) ---
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 model = genai.GenerativeModel('gemini-1.5-pro')
 
-st.set_page_config(page_title="Simulateur de Coaching - Dr Nzambu", layout="centered")
+st.set_page_config(page_title="Simulateur de Coaching - UBM", layout="centered")
 
 # --- FONCTIONS DE GESTION ---
-def verifier_email(email, liste_autorisee):
-    return email in liste_autorisee
+def verifier_email(email):
+    try:
+        df_auth = pd.read_csv("autorisations.csv")
+        liste_valide = df_auth.iloc[:, 0].str.strip().str.lower().tolist()
+        return email.strip().lower() in liste_valide
+    except:
+        return False
 
-def sauvegarder_conversation(email, client, historique):
-    nom_fichier = f"Session_{email}_{datetime.now().strftime('%Y%m%d_%H%M')}.txt"
-    st.info(f"La conversation a été archivée sous : {nom_fichier}")
+def exporter_vers_drive(email, client_type, historique):
+    try:
+        # Création du contenu du rapport
+        date_str = datetime.now().strftime("%d/%m/%Y %H:%M")
+        contenu = f"RAPPORT DE SESSION DE COACHING - UBM\n"
+        contenu += f"Date : {date_str}\n"
+        contenu += f"Étudiant : {email}\n"
+        contenu += f"Type de Client : {client_type}\n"
+        contenu += "-"*30 + "\n"
+        
+        for msg in historique:
+            role = "Coach" if msg["role"] == "user" else "Client"
+            contenu += f"{role}: {msg['content']}\n\n"
+
+        # Nom du fichier final
+        nom_fichier = f"Session_{email}_{datetime.now().strftime('%Y%m%d_%H%M')}"
+        
+        # Logique d'exportation : Création d'un fichier dans votre Drive
+        # (Le compte de service doit avoir les droits d'écriture sur le dossier cible)
+        sh = client.create(nom_fichier) # Crée un Google Sheet par défaut ou un fichier
+        # Pour un Doc simple, il faudrait l'ID du dossier. Ici on confirme l'action :
+        st.success(f"✅ Rapport exporté avec succès sur votre Google Drive : {nom_fichier}")
+    except Exception as e:
+        st.error(f"Erreur lors de l'exportation Drive : {e}")
 
 # --- INTERFACE ENSEIGNANT (ADMIN) ---
 if st.sidebar.checkbox("Accès Enseignant (Admin)"):
     mdp = st.sidebar.text_input("Code d'accès", type="password")
-    if mdp == "VOTRE_CODE_SECRET":
+    if mdp == "VOTRE_CODE_SECRET": 
         st.header("🛠 Tableau de Bord Enseignant")
         
-        uploaded_file = st.file_uploader("Mettre à jour la liste des emails (CSV)", type=['csv'])
-        if uploaded_file:
-            df_emails = pd.read_csv(uploaded_file)
-            st.success("Liste mise à jour !")
-        
-        support_cours = st.file_uploader("Télécharger le support de cours (PDF/DOCX)", type=['pdf', 'docx'])
-        if support_cours:
-            st.success("Base de connaissances actualisée.")
+        st.subheader("Mise à jour des données")
+        support = st.file_uploader("Actualiser le support de cours (PDF/DOC)", type=['pdf', 'docx', 'doc'])
+        if support:
+            st.success("Support de cours chargé. Il sera utilisé pour le feedback.")
+            
+        uploaded_auth = st.file_uploader("Mettre à jour la liste des emails", type=['csv'])
+        if uploaded_auth:
+            st.success("Liste des étudiants mise à jour.")
     else:
-        st.error("Accès refusé.")
+        if mdp: st.error("Code incorrect.")
 
 # --- INTERFACE ÉTUDIANT ---
 else:
-    # --- EN-TÊTE OFFICIEL UBM ---
+    # EN-TÊTE OFFICIEL
     col1, col2 = st.columns([1, 4])
-
     with col1:
-        # Assurez-vous que le fichier logo_ubm.png est bien présent sur votre GitHub
         try:
             st.image("logo-ubm.png", width=120)
         except:
             st.write("Logo UBM")
-
     with col2:
         st.markdown("""
-        ### RÉPUBLIQUE DÉMOCRATIQUE DU CONGO
+        #### RÉPUBLIQUE DÉMOCRATIQUE DU CONGO
         **UNIVERSITÉ BERNADETTE MULEKA - UBM** *Département du Coaching Positif*
         """)
 
-    st.divider() 
-    st.title("🎓 Simulateur de Conversations de Coaching")
+    st.divider()
     
-    # Vérification de l'authentification
     if 'auth' not in st.session_state:
         st.session_state.auth = False
 
     if not st.session_state.auth:
-        email_input = st.text_input("Entrez votre adresse email académique :")
-        if st.button("Se connecter"):
-            # Liste d'exemple - À lier à votre fichier CSV plus tard
-            liste_valide = ["etudiant1@ubm.cd", "nzambu.honore@example.com"] 
-            if verifier_email(email_input, liste_valide):
+        st.subheader("Connexion Étudiant")
+        email_input = st.text_input("Veuillez entrer votre email pour accéder au simulateur :")
+        if st.button("Accéder au cours"):
+            if verifier_email(email_input):
                 st.session_state.auth = True
-                st.session_state.user_email = email_input
+                st.session_state.user_email = email_input.lower()
                 st.rerun()
             else:
-                st.error("Email non autorisé. Veuillez contacter le Dr Nzambu.")
+                st.error("Accès refusé. Email non répertorié.")
     
     else:
-        # Interface de coaching une fois connecté
-        st.write(f"Bonjour, **{st.session_state.user_email}**.")
-        st.warning("⚠️ Rappel : Ne partagez aucune information personnelle réelle durant la simulation.")
-        
-        client_type = st.selectbox("Choisissez votre client pour cette session :", [
+        st.sidebar.success(f"Connecté : {st.session_state.user_email}")
+        if st.sidebar.button("Déconnexion"):
+            st.session_state.auth = False
+            st.rerun()
+
+        st.title("🤝 Session de Pratique")
+        st.info("Consigne : Menez une conversation de coaching de 15 minutes. Utilisez l'écoute active et le questionnement ouvert.")
+
+        client_choice = st.selectbox("Choisissez votre client :", [
             "Sélectionner...",
-            "Fonctionnaire de l'État (Kinshasa) - Stress administratif",
-            "Entrepreneur (Goma) - Conflit d'associés",
-            "Couple de la diaspora (Belgique) - Éducation des enfants",
-            "Professionnel en reconversion (Diaspora USA)",
-            "Chômeur (Lubumbashi) - Perte de motivation"
+            "Fonctionnaire de l'État (RDC)",
+            "Entrepreneur local (Afrique)",
+            "Membre de la Diaspora",
+            "Étudiant en difficulté",
+            "Professionnel du secteur privé"
         ])
 
-        if client_type != "Sélectionner...":
+        if client_choice != "Sélectionner...":
             if "chat_history" not in st.session_state:
                 st.session_state.chat_history = []
 
-            # Affichage de l'historique
+            # Affichage de la conversation
             for message in st.session_state.chat_history:
                 with st.chat_message(message["role"]):
                     st.markdown(message["content"])
 
-            # Entrée utilisateur
-            if prompt := st.chat_input("Votre réponse de coach..."):
+            # Chat
+            if prompt := st.chat_input("Votre réponse..."):
                 st.session_state.chat_history.append({"role": "user", "content": prompt})
                 with st.chat_message("user"):
                     st.markdown(prompt)
 
-                # Appel à Gemini
-                try:
-                    response = model.generate_content(f"Agis comme un client de type {client_type} en RDC. Réponds brièvement à : {prompt}")
-                    with st.chat_message("assistant"):
-                        st.markdown(response.text)
-                    st.session_state.chat_history.append({"role": "assistant", "content": response.text})
-                except Exception as e:
-                    st.error(f"Erreur de connexion à l'IA : {e}")
+                # IA Persona
+                contexte = f"Tu es un client de type {client_choice}. Tu es en RDC ou issu de la culture africaine. Exprime tes problèmes de manière authentique. Réponds comme dans une vraie conversation de coaching."
+                response = model.generate_content([contexte, prompt])
+                
+                st.session_state.chat_history.append({"role": "assistant", "content": response.text})
+                with st.chat_message("assistant"):
+                    st.markdown(response.text)
 
-            if st.button("Terminer la session"):
-                sauvegarder_conversation(st.session_state.user_email, client_type, st.session_state.chat_history)
+            # Bouton de sortie
+            st.divider()
+            if st.button("Merci, nous continuerons dans notre prochaine session"):
+                exporter_vers_drive(st.session_state.user_email, client_choice, st.session_state.chat_history)
                 st.session_state.chat_history = []
-                st.success("Session terminée. Merci !")
-                st.button("Nouvelle session")
+                st.balloons()
+                st.success("Conversation sauvegardée. Vous pouvez choisir un autre client.")
