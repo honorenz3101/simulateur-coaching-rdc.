@@ -7,6 +7,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 import PyPDF2
 import docx
 import io
+import os
 
 # --- 1. CONFIGURATION DRIVE & API ---
 scope = [
@@ -41,23 +42,31 @@ except Exception as e:
 st.set_page_config(page_title="Simulateur Coaching UBM", layout="centered")
 
 # --- 2. FONCTIONS DE GESTION & PEDAGOGIE ---
-def verifier_email(email):
+def get_liste_emails():
+    """Lecteur tout-terrain qui ignore les erreurs de format Excel"""
     try:
-        # Tentative de lecture avec utf-8-sig pour détruire le caractère invisible (BOM) d'Excel
-        try:
-            df_auth = pd.read_csv("autorisations.csv", sep=None, engine='python', header=None, encoding='utf-8-sig')
-        except:
-            # Solution de repli si le fichier a un autre format européen
-            df_auth = pd.read_csv("autorisations.csv", sep=None, engine='python', header=None, encoding='latin1')
+        if not os.path.exists("autorisations.csv"):
+            return []
             
-        # Nettoyage extrême : on force en texte, on enlève les espaces de chaque côté, et on met en minuscules
-        liste_valide = df_auth.iloc[:, 0].astype(str).str.strip().str.lower().tolist()
+        with open("autorisations.csv", "r", encoding="utf-8-sig", errors="ignore") as f:
+            lignes = f.readlines()
         
-        email_propre = email.strip().lower()
-        return email_propre in liste_valide
+        liste_valide = []
+        for ligne in lignes:
+            # On remplace les points-virgules par des virgules pour uniformiser, puis on coupe
+            premier_element = ligne.replace(';', ',').split(',')[0]
+            email_propre = premier_element.strip().lower()
+            
+            # On ignore les lignes vides et le mot "email" ou "emails" de l'en-tête
+            if email_propre and "email" not in email_propre:
+                liste_valide.append(email_propre)
+        return liste_valide
     except Exception as e:
-        print(f"Erreur de lecture CSV : {e}")
-        return False
+        return []
+
+def verifier_email(email):
+    liste = get_liste_emails()
+    return email.strip().lower() in liste
 
 def extraire_texte_fichier(fichier):
     texte = ""
@@ -129,14 +138,25 @@ if st.sidebar.checkbox("Accès Enseignant (Admin)"):
         st.header("🛠 Espace Administration")
         
         st.subheader("1. Gestion des accès")
-        fichier_csv = st.file_uploader("Mettre à jour la liste des étudiants (autorisations.csv)", type=['csv'])
+        
+        # --- LE NOUVEAU SCANNER VISUEL ---
+        emails_actuels = get_liste_emails()
+        st.info(f"🟢 Le système reconnaît actuellement {len(emails_actuels)} adresse(s) e-mail valide(s).")
+        with st.expander("Voir la liste exacte lue par la machine"):
+            if len(emails_actuels) > 0:
+                for mail in emails_actuels:
+                    st.write(f"- {mail}")
+            else:
+                st.warning("Aucune adresse n'a été trouvée ou le fichier est vide.")
+        
+        fichier_csv = st.file_uploader("Mettre à jour la liste des étudiants (Excel/CSV)", type=['csv'])
         
         if fichier_csv is not None:
             if st.button("Sauvegarder la nouvelle liste"):
                 try:
                     with open("autorisations.csv", "wb") as f:
                         f.write(fichier_csv.getbuffer())
-                    st.success("✅ La liste des accès a été mise à jour ! (Note: Streamlit efface les fichiers uploadés s'il se met en veille. Gardez une copie de votre liste).")
+                    st.success("✅ La liste a été mise à jour ! Décochez l'accès enseignant pour tester.")
                 except Exception as e:
                     st.error(f"Erreur lors de la sauvegarde : {e}")
         
