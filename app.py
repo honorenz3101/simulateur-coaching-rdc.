@@ -56,7 +56,21 @@ if st.sidebar.checkbox("Accès Enseignant (Admin)"):
 
 # --- INTERFACE ÉTUDIANT ---
 else:
-    st.title("Universite Bernadette Muleka (UBM) /n Departement du Coaching Positif /n 🎓 Simulateur de Conversations de Coaching")
+    # --- EN-TÊTE OFFICIEL UBM ---
+col1, col2 = st.columns([1, 4])
+
+with col1:
+    # Remplacez l'URL ci-dessous par le lien direct vers l'image de votre logo
+    st.image("logo_ubm.png", width=120)
+
+with col2:
+    st.markdown("""
+    ### RÉPUBLIQUE DÉMOCRATIQUE DU CONGO
+    **UNIVERSITÉ BERNADETTE MULEKA - UBM** *Département du Coaching Positif*
+    """)
+
+st.divider() # Ajoute une ligne de séparation élégante
+st.title("🎓 Simulateur de Conversations de Coaching")
     
     if 'auth' not in st.session_state:
         st.session_state.auth = False
