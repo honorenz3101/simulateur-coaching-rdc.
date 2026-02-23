@@ -52,7 +52,7 @@ else:
     with col1:
         # Assurez-vous que le fichier logo_ubm.png est bien présent sur votre GitHub
         try:
-            st.image("logo_ubm.png", width=120)
+            st.image("logo-ubm.png", width=120)
         except:
             st.write("Logo UBM")
 
