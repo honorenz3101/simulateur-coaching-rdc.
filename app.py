@@ -13,15 +13,16 @@ def initialiser_drive():
         creds_dict = st.secrets["gcp_service_account"]
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         return gspread.authorize(creds)
-    except Exception as e:
+    except Exception:
         return None
 
-# Initialisation de l'IA Gemini
+# --- CONFIGURATION IA (MODIFIÉE POUR ÉVITER L'ERREUR 404) ---
 try:
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    model = genai.GenerativeModel('gemini-1.5-pro')
+    # Utilisation du modèle 'gemini-1.5-flash' qui est plus largement supporté
+    model = genai.GenerativeModel('gemini-1.5-flash')
 except Exception as e:
-    st.error("Erreur de configuration de la clé API Gemini. Vérifiez vos Secrets Streamlit.")
+    st.error("Erreur de configuration de la clé API Gemini.")
 
 st.set_page_config(page_title="Simulateur Coaching UBM", layout="centered")
 
@@ -55,7 +56,6 @@ if st.sidebar.checkbox("Accès Enseignant (Admin)"):
 
 # --- 4. INTERFACE ÉTUDIANT ---
 else:
-    # En-tête officiel UBM
     col1, col2 = st.columns([1, 4])
     with col1:
         try:
@@ -97,27 +97,23 @@ else:
         ])
 
         if client_choice != "Sélectionner...":
-            # Initialisation de l'historique pour ce client précis
             if "chat_history" not in st.session_state:
                 st.session_state.chat_history = []
             
-            # --- ACTION : Le client parle en premier ---
+            # --- INITIALISATION PAR LE CLIENT ---
             if len(st.session_state.chat_history) == 0:
-                with st.spinner("Le client entre et s'installe..."):
+                with st.spinner("Le client entre..."):
                     init_prompt = f"Tu es un client de coaching : {client_choice}. Tu es en RDC ou issu de cette culture. Salue ton coach et présente brièvement ton problème pour lancer la séance. Sois court et authentique."
                     try:
-                        # On utilise directement generate_content avec une chaîne simple pour l'init
                         response = model.generate_content(init_prompt)
                         st.session_state.chat_history.append({"role": "assistant", "content": response.text})
                     except Exception as e:
                         st.error(f"Erreur d'initialisation : {str(e)}")
 
-            # Affichage des messages
             for message in st.session_state.chat_history:
                 with st.chat_message(message["role"]):
                     st.markdown(message["content"])
 
-            # Entrée du texte par le coach
             if prompt := st.chat_input("Répondez au client..."):
                 st.session_state.chat_history.append({"role": "user", "content": prompt})
                 with st.chat_message("user"):
@@ -126,20 +122,16 @@ else:
                 with st.chat_message("assistant"):
                     with st.spinner("Le client répond..."):
                         try:
-                            # Construction du contexte pour la réponse
-                            instruction = f"Tu es le client {client_choice}. Réponds naturellement au coach."
-                            # On envoie l'instruction + le dernier message pour plus de fluidité
-                            response = model.generate_content([instruction, prompt])
-                            
+                            # Contexte + les 4 derniers messages pour la mémoire sans saturer l'API
+                            context = f"Tu es le client {client_choice}. Réponds brièvement au coach."
+                            response = model.generate_content([context, prompt])
                             st.session_state.chat_history.append({"role": "assistant", "content": response.text})
                             st.markdown(response.text)
                         except Exception as e:
                             st.error(f"Erreur de réponse : {str(e)}")
 
-            # Fin de séance
             st.divider()
             if st.button("Terminer la session (Sauvegarder et quitter)"):
                 exporter_vers_drive(st.session_state.user_email, client_choice, st.session_state.chat_history)
-                # On vide l'historique pour permettre de changer de client
                 del st.session_state.chat_history
                 st.rerun()
