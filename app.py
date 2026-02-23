@@ -46,32 +46,47 @@ def verifier_email(email):
         return False
 
 def exporter_vers_drive(email, client_type, historique):
-    client_drive = initialiser_drive()
-    if client_drive:
+    try:
+        st.info("Étape 1 : Connexion au compte de service Google Drive...")
+        client_drive = initialiser_drive()
+        if not client_drive:
+            st.error("Échec Étape 1 : Le client Drive n'a pas pu être initialisé. Vérifiez votre fichier JSON dans les Secrets Streamlit.")
+            return
+
+        st.info("Étape 2 : Ouverture de votre fichier Google Sheets central...")
+        # L'ID de votre registre central
+        ID_FICHIER_MAITRE = "1SCfmcWKY5-PUbBu3qMZ-WRakhUDr0dpTvsldZFdgHgE"
         try:
-            # ⚠️ L'ID DE VOTRE FICHIER GOOGLE SHEETS CENTRAL
-            ID_FICHIER_MAITRE = "1SCfmcWKY5-PUbBu3qMZ-WRakhUDr0dpTvsldZFdgHgE"
-            
-            # 1. On rassemble toute la conversation en un seul bloc de texte
+            sh = client_drive.open_by_key(ID_FICHIER_MAITRE)
+        except Exception as e:
+            st.error(f"Échec Étape 2 : Impossible d'ouvrir le fichier. Le compte de service a-t-il bien été ajouté comme Éditeur ?\n\nDétail : {e}")
+            return
+
+        st.info("Étape 3 : Sélection du premier onglet du tableau...")
+        try:
+            # Index 0 pour ignorer la barrière de la langue (Sheet1 vs Feuille 1)
+            worksheet = sh.get_worksheet(0) 
+        except Exception as e:
+            st.error(f"Échec Étape 3 : Impossible de trouver l'onglet dans le fichier.\n\nDétail : {e}")
+            return
+
+        st.info("Étape 4 : Formatage et écriture de la conversation...")
+        try:
             texte_conversation = ""
             for msg in historique:
                 role = "Coach" if msg["role"] == "user" else "Client"
                 texte_conversation += f"{role}: {msg['content']}\n\n"
             
-            # 2. On ouvre votre fichier existant
-            sh = client_drive.open_by_key(ID_FICHIER_MAITRE)
-            worksheet = sh.sheet1 # Sélectionne le premier onglet du tableau
-            
-            # 3. On prépare la nouvelle ligne de données
             date_session = datetime.now().strftime('%Y-%m-%d %H:%M')
             nouvelle_ligne = [date_session, email, client_type, texte_conversation]
-            
-            # 4. On ajoute la ligne tout en bas du tableau
+
             worksheet.append_row(nouvelle_ligne)
-            
             st.success("✅ Rapport sauvegardé avec succès dans le registre central !")
         except Exception as e:
-            st.error(f"Échec de l'exportation Drive : {e}")
+            st.error(f"Échec Étape 4 : L'écriture a été refusée. L'API 'Google Sheets API' est-elle activée ?\n\nDétail : {e}")
+
+    except Exception as e:
+        st.error(f"Erreur globale inattendue : {e}")
 
 # --- 3. INTERFACE ENSEIGNANT ---
 if st.sidebar.checkbox("Accès Enseignant (Admin)"):
@@ -159,7 +174,6 @@ else:
 
                 with st.chat_message("assistant"):
                     try:
-                        # Reconstitution de l'historique pour garder la mémoire du nom et de l'histoire
                         historique_texte = "\n".join([f"{'Coach' if m['role']=='user' else 'Client'}: {m['content']}" for m in st.session_state.chat_history])
                         
                         full_prompt = f"""
@@ -178,7 +192,5 @@ else:
             # --- BOUTON DE FIN DE SESSION ET SAUVEGARDE ---
             st.divider()
             if st.button("Terminer la session et sauvegarder le rapport"):
+                # On lance la nouvelle fonction de diagnostic
                 exporter_vers_drive(st.session_state.user_email, client_choice, st.session_state.chat_history)
-                # Réinitialisation de l'historique pour la prochaine session
-                del st.session_state.chat_history
-                st.rerun()
