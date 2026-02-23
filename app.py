@@ -16,13 +16,13 @@ def initialiser_drive():
     except Exception:
         return None
 
-# --- CONFIGURATION IA (CORRECTION NOM DU MODÈLE) ---
+# --- CONFIGURATION IA (FORCE LE MODÈLE STABLE) ---
 try:
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    # Utilisation du nom complet du modèle pour éviter l'erreur 404
-    model = genai.GenerativeModel('models/gemini-1.5-flash')
+    # Utilisation de la version 'latest' qui est la plus compatible
+    model = genai.GenerativeModel('gemini-1.5-flash-latest')
 except Exception as e:
-    st.error(f"Erreur de configuration API : {str(e)}")
+    st.error(f"Erreur configuration API : {str(e)}")
 
 st.set_page_config(page_title="Simulateur Coaching UBM", layout="centered")
 
@@ -41,22 +41,21 @@ def exporter_vers_drive(email, client_type, historique):
         try:
             nom_fichier = f"Session_{email}_{datetime.now().strftime('%Y%m%d_%H%M')}"
             client_drive.create(nom_fichier)
-            st.success(f"✅ Rapport exporté sur Google Drive : {nom_fichier}")
+            st.success(f"✅ Rapport exporté sur Google Drive")
         except Exception as e:
-            st.error(f"Échec de l'exportation Drive : {e}")
+            st.error(f"Échec exportation : {e}")
 
 # --- 3. INTERFACE ENSEIGNANT ---
 if st.sidebar.checkbox("Accès Enseignant (Admin)"):
     mdp = st.sidebar.text_input("Code d'accès", type="password")
     if mdp == "VOTRE_CODE_SECRET": 
         st.header("🛠 Espace Administration")
-        st.write("Liste des modèles accessibles par votre clé :")
+        st.write("Diagnostic des modèles disponibles...")
         try:
-            for m in genai.list_models():
-                if 'generateContent' in m.supported_generation_methods:
-                    st.write(f"- {m.name}")
-        except:
-            st.write("Impossible de lister les modèles.")
+            models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+            st.write(models)
+        except Exception as e:
+            st.write(f"Erreur diagnostic : {e}")
     else:
         if mdp: st.error("Code erroné")
 
@@ -106,15 +105,15 @@ else:
             if "chat_history" not in st.session_state:
                 st.session_state.chat_history = []
             
+            # --- INITIALISATION ---
             if len(st.session_state.chat_history) == 0:
                 with st.spinner("Le client entre..."):
-                    init_prompt = f"Tu es un client de coaching : {client_choice}. Salue ton coach et présente ton problème brièvement."
                     try:
-                        # Appel avec le nom de modèle explicite
-                        response = model.generate_content(init_prompt)
+                        # Appel simplifié sans paramètres complexes
+                        response = model.generate_content(f"Tu es un client de coaching : {client_choice}. Présente ton problème brièvement en une phrase.")
                         st.session_state.chat_history.append({"role": "assistant", "content": response.text})
                     except Exception as e:
-                        st.error(f"Erreur d'initialisation : {str(e)}")
+                        st.error(f"Erreur technique (IA) : {str(e)}")
 
             for message in st.session_state.chat_history:
                 with st.chat_message(message["role"]):
@@ -126,14 +125,14 @@ else:
                     st.markdown(prompt)
 
                 with st.chat_message("assistant"):
-                    with st.spinner("Le client répond..."):
-                        try:
-                            context = f"Tu es le client {client_choice}. Réponds brièvement."
-                            response = model.generate_content([context, prompt])
-                            st.session_state.chat_history.append({"role": "assistant", "content": response.text})
-                            st.markdown(response.text)
-                        except Exception as e:
-                            st.error(f"Erreur de réponse : {str(e)}")
+                    try:
+                        # Utilisation de l'historique simplifié
+                        full_prompt = f"Tu es le client {client_choice}. Le coach dit : '{prompt}'. Réponds brièvement."
+                        response = model.generate_content(full_prompt)
+                        st.session_state.chat_history.append({"role": "assistant", "content": response.text})
+                        st.markdown(response.text)
+                    except Exception as e:
+                        st.error(f"Erreur de réponse : {str(e)}")
 
             st.divider()
             if st.button("Terminer la session"):
